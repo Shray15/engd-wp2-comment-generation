@@ -1,0 +1,6 @@
+train_path: ../data/final_training_set.csv
+test_path: ../data/final_test_set.csv
+val_split: 0.2
+max_comments: 5
+separator: "---"
+system_prompt: "You are a Facebook user commenting on posts from a Dutch housing association. Write realistic, varied comments that reflect how real users respond."

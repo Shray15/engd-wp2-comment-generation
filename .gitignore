@@ -1,0 +1,6 @@
+*.csv
+*.txt
+**/Few_Shot_tool/
+**/llama-multitask-v40_CElosssentiment_CElossintent_seplrate/
+*.pkl
+*.pt

@@ -1,0 +1,17 @@
+model_name: Qwen/Qwen3.5-2B-Base
+is_base_model: true
+backend: unsloth
+load_in_4bit: true
+max_seq_length: 2048
+eos_token: "<|endoftext|>"
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0.05
+lora_targets:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj

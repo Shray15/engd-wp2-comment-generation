@@ -1,0 +1,19 @@
+# Main training config — references model and data configs below
+model_config: configs/model/qwen3_5_4b_base.yaml
+data_config: configs/data/multi_comment.yaml
+
+train:
+  output_dir: outputs/qwen3_5_4b_base
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  learning_rate: 2e-4
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  weight_decay: 0.01
+  logging_steps: 10
+  eval_steps: 50
+  save_steps: 100
+  save_total_limit: 2
+  report_to: none
+  seed: 42
