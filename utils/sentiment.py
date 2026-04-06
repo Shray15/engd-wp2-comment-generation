@@ -10,7 +10,7 @@ from tqdm import tqdm
 nltk.download('punkt')
 
 # Load the data
-data = pd.read_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\Fine Tune gemma\multiloss\multiloss_generated_commentsv2.csv")
+data = pd.read_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\Fine Tune gemma\multiloss\multiloss_generated_commentsv3.csv")
 real_data = pd.read_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\data\final_test_set.csv")
 data.replace('\n', pd.NA, inplace=True)
 
@@ -155,5 +155,5 @@ for i in tqdm(range(len(data["generated_comment"]))):
     df = pd.concat([df, check], ignore_index=True)
 
 # Save results to CSV
-df.to_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\Fine Tune gemma\multiloss\sentiment_resultsv2.csv", index=False)
+df.to_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\Fine Tune gemma\multiloss\multiloss_sentiment_resultsv3.csv", index=False)
 
