@@ -4,3 +4,4 @@
 **/llama-multitask-v40_CElosssentiment_CElossintent_seplrate/
 *.pkl
 *.pt
+*.pdf
