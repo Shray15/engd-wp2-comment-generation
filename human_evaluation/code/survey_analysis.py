@@ -1,84 +1,64 @@
 import pandas as pd
 import numpy as np
+import re
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from scipy.stats import mannwhitneyu
 from sklearn.metrics import cohen_kappa_score
+from scipy.stats import mannwhitneyu
 
-base = r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\Fine Tune gemma\objective"
+base = r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\human_evaluation\subsets"
+metrics = ['fluency', 'relevance', 'humanness']
 
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 1: LOAD DATA
-# ═══════════════════════════════════════════════════════════════════════
-# Google Form exports one CSV per annotator
-# Each CSV has one row (the annotator's submission)
-# Columns: Timestamp, Item 1 of 20 [ID:X] Fluency, Item 1 of 20 [ID:X] Relevance, etc.
-
-master = pd.read_csv(f"{base}\\master_with_conditions.csv")
-
-annotator_pairs = [
-    (1, 2),
-    (3, 4),
-    (5, 6),
-    (7, 8)
-]
+# Sliding window overlap pairs
+overlap_pairs = [(1,2), (2,3), (3,4), (4,5), (5,6), (6,7)]
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 2: PARSE GOOGLE FORM RESPONSES
+# STEP 1: PARSE GOOGLE FORM RESPONSES
 # ═══════════════════════════════════════════════════════════════════════
-# Google Form responses come in wide format (one row per annotator,
-# one column per question). We parse and reshape to long format.
-
-import re
 
 def parse_annotator_response(csv_path, annotator_id):
     """
-    Parse a single annotator's Google Form response CSV.
-    Extracts pair_id from column names and reshapes to long format.
-    
-    Returns DataFrame with columns:
-        annotator_id, pair_id, fluency, relevance, realism
+    Parse Google Form CSV export.
+    Column names: "Item 3 of 20 [ID:47] Fluency"
+    Returns long format: one row per item.
     """
-    df = pd.read_csv(csv_path)
-    
-    # Take first data row (one submission per annotator)
-    row = df.iloc[0]
-    
-    records = []
-    
-    # Column names look like: "Item 3 of 20 [ID:47] Fluency"
-    fluency_cols   = [c for c in df.columns if re.search(r'\[ID:\d+\]', c) and 'Fluency'   in c]
-    relevance_cols = [c for c in df.columns if re.search(r'\[ID:\d+\]', c) and 'Relevance' in c]
-    realism_cols   = [c for c in df.columns if re.search(r'\[ID:\d+\]', c) and 'Realism'   in c]
-    
-    for f_col, rel_col, rea_col in zip(fluency_cols, relevance_cols, realism_cols):
-        # Extract pair_id from column name
-        pair_id = int(re.search(r'\[ID:(\d+)\]', f_col).group(1))
-        
-        records.append({
-            'annotator_id': annotator_id,
-            'pair_id':      pair_id,
-            'fluency':      int(row[f_col]),
-            'relevance':    int(row[rel_col]),
-            'realism':      int(row[rea_col])
-        })
-    
-    return pd.DataFrame(records)
+    df  = pd.read_csv(csv_path)
+    row = df.iloc[0]  # one submission per annotator
+    records = {}
 
-# Load all 8 annotator responses
+    for col in df.columns:
+        match = re.search(r'\[ID:(\d+)\]', col)
+        if not match:
+            continue
+        pair_id = int(match.group(1))
+
+        for metric in metrics:
+            if metric.capitalize() in col:
+                if pair_id not in records:
+                    records[pair_id] = {
+                        'annotator_id': annotator_id,
+                        'pair_id':      pair_id
+                    }
+                records[pair_id][metric] = int(row[col])
+
+    return pd.DataFrame(list(records.values()))
+
+# Load all 7 annotators
 all_responses = []
-for ann_id in range(1, 9):
-    csv_path = f"{base}\\annotator_{ann_id:02d}_responses.csv"
-    ann_df   = parse_annotator_response(csv_path, ann_id)
+for ann_id in range(1, 8):
+    path   = f"{base}\\annotator_{ann_id:02d}_responses.csv"
+    ann_df = parse_annotator_response(path, ann_id)
     all_responses.append(ann_df)
     print(f"Annotator {ann_id}: {len(ann_df)} items parsed ✓")
 
 responses = pd.concat(all_responses, ignore_index=True)
-print(f"\nTotal responses: {len(responses)} (expect 160)")
+print(f"\nTotal responses: {len(responses)} (expect 140)")
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 3: MERGE WITH MASTER TO GET CONDITION LABELS
+# STEP 2: MERGE WITH MASTER TO GET CONDITION LABELS
 # ═══════════════════════════════════════════════════════════════════════
+
+master = pd.read_csv(f"{base}\\master_with_conditions.csv")
 
 results = responses.merge(
     master[['annotator_id', 'pair_id', 'condition', 'item_id']],
@@ -86,61 +66,85 @@ results = responses.merge(
     how='left'
 )
 
-# Sanity check
-print(f"\nMerge check — null conditions: {results['condition'].isna().sum()} (expect 0)")
-print(f"Condition counts:\n{results['condition'].value_counts().to_string()}")
-
-metrics = ['fluency', 'relevance', 'realism']
+print(f"Null conditions: {results['condition'].isna().sum()} (expect 0)")
+print(f"Condition counts:\n{results['condition'].value_counts()}")
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 4: COHEN'S KAPPA — INTER-ANNOTATOR AGREEMENT
+# STEP 3: COHEN'S KAPPA — SLIDING WINDOW OVERLAP PAIRS
 # ═══════════════════════════════════════════════════════════════════════
-# Each item was seen by exactly 2 annotators (one pair)
-# Compute Cohen's κ per pair per metric
-# Then report mean κ across all pairs
+# Only consecutive annotator pairs share items (overlap of 10)
+# κ computed ONLY on shared items between each pair
 
-print("\n=== INTER-ANNOTATOR AGREEMENT (Cohen's κ) ===")
+print("\n=== INTER-ANNOTATOR AGREEMENT (Quadratic Weighted Cohen's κ) ===")
 
 kappa_records = []
 
-for ann_a, ann_b in annotator_pairs:
-    scores_a = results[results['annotator_id'] == ann_a].sort_values('item_id')
-    scores_b = results[results['annotator_id'] == ann_b].sort_values('item_id')
-    
+for ann_a, ann_b in overlap_pairs:
+
+    # Get shared item_ids between this pair
+    items_a = set(results[results['annotator_id'] == ann_a]['item_id'])
+    items_b = set(results[results['annotator_id'] == ann_b]['item_id'])
+    shared  = items_a & items_b
+
+    print(f"\n  Pair ({ann_a},{ann_b}) — {len(shared)} shared items:")
+
+    if len(shared) == 0:
+        print(f"    WARNING: no shared items found!")
+        continue
+
+    scores_a = (results[(results['annotator_id'] == ann_a) &
+                        (results['item_id'].isin(shared))]
+                .sort_values('item_id'))
+
+    scores_b = (results[(results['annotator_id'] == ann_b) &
+                        (results['item_id'].isin(shared))]
+                .sort_values('item_id'))
+
     for metric in metrics:
         kappa = cohen_kappa_score(
             scores_a[metric].values,
             scores_b[metric].values,
-            weights='quadratic'   # quadratic weighted κ for ordinal scales
+            weights='quadratic'
         )
         kappa_records.append({
             'pair':   f"({ann_a},{ann_b})",
             'metric': metric,
-            'kappa':  kappa
+            'kappa':  round(kappa, 3)
         })
-        print(f"Pair ({ann_a},{ann_b}) — {metric:>9}: κ = {kappa:.3f}")
+        print(f"    {metric:>10}: κ = {kappa:.3f}")
 
 kappa_df = pd.DataFrame(kappa_records)
 
-print(f"\nMean κ per metric:")
-mean_kappa = kappa_df.groupby('metric')['kappa'].mean()
-for metric, k in mean_kappa.items():
-    print(f"  {metric:>9}: κ = {k:.3f}")
+# Summary
+print(f"\nMean κ per metric (across all overlap pairs):")
+for metric, k in kappa_df.groupby('metric')['kappa'].mean().items():
+    interpretation = (
+        'slight'          if k < 0.20 else
+        'fair'            if k < 0.40 else
+        'moderate'        if k < 0.60 else
+        'substantial'     if k < 0.80 else
+        'almost perfect'
+    )
+    print(f"  {metric:>10}: κ = {k:.3f} ({interpretation})")
 
 print(f"\nOverall mean κ: {kappa_df['kappa'].mean():.3f}")
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 5: AVERAGE SCORES PER ITEM (MEAN OF 2 ANNOTATORS)
+# STEP 4: AVERAGE SCORES PER ITEM
 # ═══════════════════════════════════════════════════════════════════════
-# For analysis and plotting, average the two annotators' scores per item
+# Overlap items (seen by 2 annotators) → average of 2 ratings
+# Edge items (seen by 1 annotator)     → single rating
 
-item_scores = results.groupby(['item_id', 'pair_id', 'condition'])[metrics].mean().reset_index()
+item_scores = (results
+               .groupby(['item_id', 'pair_id', 'condition'])[metrics]
+               .mean()
+               .reset_index())
 
-print(f"\n=== MEAN SCORES (averaged across 2 annotators per item) ===")
+print(f"\n=== MEAN SCORES PER CONDITION ===")
 print(item_scores.groupby('condition')[metrics].mean().round(3).to_string())
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 6: REAL VS SYNTHETIC COMPARISON — MANN-WHITNEY U TEST
+# STEP 5: MANN-WHITNEY U — REAL VS SYNTHETIC
 # ═══════════════════════════════════════════════════════════════════════
 
 print("\n=== REAL vs SYNTHETIC (Mann-Whitney U) ===")
@@ -156,26 +160,33 @@ for metric in metrics:
         syn[metric].values,
         alternative='two-sided'
     )
+    sig = '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else 'ns'
     stat_records.append({
         'metric':    metric,
-        'real_mean': real[metric].mean(),
-        'syn_mean':  syn[metric].mean(),
+        'real_mean': round(real[metric].mean(), 3),
+        'syn_mean':  round(syn[metric].mean(), 3),
         'U':         stat,
-        'p':         p
+        'p':         round(p, 4),
+        'sig':       sig
     })
-    sig = '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else 'ns'
-    print(f"{metric:>9}: real={real[metric].mean():.2f}, "
+    print(f"  {metric:>10}: real={real[metric].mean():.2f}, "
           f"synthetic={syn[metric].mean():.2f}, "
           f"U={stat:.0f}, p={p:.3f} {sig}")
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 7: BOXPLOTS
+# STEP 6: BOXPLOTS
 # ═══════════════════════════════════════════════════════════════════════
 
-fig, axes = plt.subplots(1, 3, figsize=(12, 5))
+plt.rcParams.update({
+    'font.family':    'serif',
+    'font.size':      10,
+    'axes.linewidth': 0.8
+})
 
-colors     = {'real': '#E8A87C', 'synthetic': '#7B9EC9'}
-hatches    = {'real': '***',     'synthetic': 'xxx'}
+fig, axes = plt.subplots(1, 3, figsize=(12, 4), sharey=False)
+
+colors     = {'real': '#F4A460', 'synthetic': '#9EB9D4'}
+hatches    = {'real': '///',     'synthetic': '...'}
 conditions = ['real', 'synthetic']
 labels     = ['Real', 'Synthetic']
 
@@ -188,55 +199,78 @@ for ax, metric in zip(axes, metrics):
 
     bp = ax.boxplot(
         data_to_plot,
+        positions=[1, 2],
         patch_artist=True,
-        widths=0.4,
+        widths=0.5,
         showfliers=True,
-        medianprops=dict(color='black', linewidth=2)
+        flierprops=dict(marker='o', markersize=4,
+                        markerfacecolor='none',
+                        markeredgewidth=0.8),
+        medianprops=dict(color='black', linewidth=1.5),
+        whiskerprops=dict(linewidth=0.8),
+        capprops=dict(linewidth=0.8),
+        boxprops=dict(linewidth=0.8)
     )
 
     for patch, cond in zip(bp['boxes'], conditions):
         patch.set_facecolor(colors[cond])
         patch.set_hatch(hatches[cond])
-        patch.set_alpha(0.85)
+        patch.set_alpha(0.9)
 
-    # Add significance stars above boxes
+    # Significance bar + stars
     stat_row = next(s for s in stat_records if s['metric'] == metric)
-    p = stat_row['p']
-    sig = '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else 'ns'
-    ax.text(1.5, 5.05, sig, ha='center', fontsize=13, fontweight='bold')
-    ax.plot([1, 2], [4.9, 4.9], color='black', linewidth=1)
+    y_bar = max(
+        item_scores[item_scores['condition'] == 'real'][metric].max(),
+        item_scores[item_scores['condition'] == 'synthetic'][metric].max()
+    ) + 0.2
+    ax.plot([1, 2], [y_bar, y_bar], color='black', linewidth=0.8)
+    ax.text(1.5, y_bar + 0.05, stat_row['sig'],
+            ha='center', va='bottom', fontsize=11, fontweight='bold')
 
-    ax.set_title(metric.capitalize(), fontsize=13, fontweight='bold')
-    ax.set_xticks([])
-    ax.set_ylabel('Score', fontsize=11)
-    ax.set_ylim(1, 5.4)
+    ax.set_title(metric.capitalize(), fontsize=11, fontweight='bold', pad=6)
+    ax.set_xticks([1, 2])
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_xlabel('Condition', fontsize=9, labelpad=4)
+    ax.set_ylabel('Score', fontsize=9)
+    ax.set_ylim(1, 5.8)
     ax.set_yticks([1, 2, 3, 4, 5])
-    ax.yaxis.grid(True, linestyle='--', alpha=0.5)
+    ax.yaxis.grid(True, linestyle='--', alpha=0.4, linewidth=0.6)
     ax.set_axisbelow(True)
 
-legend_handles = [
-    mpatches.Patch(facecolor=colors[cond], hatch=hatches[cond],
-                   alpha=0.85, label=label)
-    for cond, label in zip(conditions, labels)
-]
+    # Legend inside first plot only
+    if ax == axes[0]:
+        legend_handles = [
+            mpatches.Patch(
+                facecolor=colors[cond],
+                hatch=hatches[cond],
+                alpha=0.9,
+                label=label,
+                linewidth=0.8
+            )
+            for cond, label in zip(conditions, labels)
+        ]
+        ax.legend(
+            handles=legend_handles,
+            loc='upper right',
+            fontsize=8,
+            frameon=True,
+            framealpha=0.9,
+            edgecolor='gray'
+        )
 
-fig.legend(
-    handles=legend_handles,
-    loc='lower center',
-    ncol=2,
-    fontsize=11,
-    frameon=True,
-    bbox_to_anchor=(0.5, -0.05)
+plt.suptitle(
+    'Figure X: Distribution of human evaluation scores on three qualitative metrics.',
+    fontsize=9,
+    y=-0.02,
+    style='italic'
 )
 
-plt.suptitle('Human Evaluation: Real vs Synthetic Comments',
-             fontsize=14, fontweight='bold', y=1.02)
 plt.tight_layout()
 plt.savefig(f"{base}\\human_eval_boxplots.png", dpi=300, bbox_inches='tight')
 plt.show()
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 8: SAVE RESULTS
+# STEP 7: SAVE ALL RESULTS
 # ═══════════════════════════════════════════════════════════════════════
 
 item_scores.to_csv(f"{base}\\item_scores_averaged.csv", index=False)
@@ -244,7 +278,7 @@ kappa_df.to_csv(f"{base}\\kappa_results.csv", index=False)
 pd.DataFrame(stat_records).to_csv(f"{base}\\mannwhitney_results.csv", index=False)
 
 print(f"\n✓ Saved:")
-print(f"  item_scores_averaged.csv   — averaged scores per item")
-print(f"  kappa_results.csv          — Cohen's κ per pair per metric")
-print(f"  mannwhitney_results.csv    — real vs synthetic test results")
-print(f"  human_eval_boxplots.png    — figure for paper")
+print(f"  item_scores_averaged.csv  — averaged scores per item")
+print(f"  kappa_results.csv         — Cohen's κ per overlap pair per metric")
+print(f"  mannwhitney_results.csv   — Mann-Whitney U results")
+print(f"  human_eval_boxplots.png   — figure for paper")
