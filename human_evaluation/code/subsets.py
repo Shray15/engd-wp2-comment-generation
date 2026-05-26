@@ -23,7 +23,60 @@ def is_meaningful(text, min_words=5):
 def replace_org(text):
     if pd.isna(text):
         return text
-    return re.sub(r'Stichting Woonbedrijf|Woonbedrijf|woonbedrijf|#Woonbedrijf|#woonbedrijf', '<ORG>', str(text))
+    return re.sub(
+        r'Stichting Woonbedrijf|ACTI-UM|Actium|actium|#Actium|#actium'
+        r'|Woonbedrijf|woonbedrijf|#Woonbedrijf|#woonbedrijf'
+        r'|#vestide|#Vestide|Vestide'
+        r'|#SWS\.Hhvl|#SWS\.HHVL'
+        r'|WSLeusden|Woonwaarts|Bindkracht10|Nijestee'
+        r'|De Woonschakel|Woonschakel|365Zon|Amendex'
+        r'|Hemink Groep B\.V\.|Hemink Groep'
+        r'|Cognitum|BAM Wonen|Donker Groep|WIJeindhoven'
+        r'|KleurrijkWonen|De Kernen|Van Wijnen'
+        r'|Groenen Bouw|Van Santvoort|Groenrijk'
+        r'|Heijmans|@Heijmans|Wooninc|ZOwonen'
+        r'|Woningstichting Den Helder|Lunet'
+        r'|1Twente|Tubantia|Caspar de Haan|@caspardehaan\.nl'
+        r'|@levgroep|@cordaadwelzijn'
+        r'|@luzac\.eindhoven|@koffiehuisjeeindhoven'
+        r'|Be More You|Barabaz',
+        '<ORG>',
+        str(text)
+    )
+
+def replace_name(text):
+    if pd.isna(text):
+        return text
+    return re.sub(
+        r'Roy Beijnsberger|Henny Zink|Marion'
+        r'|Annelotte|Marjan Maat|Wilma Wouters|Marco Karman'
+        r'|Anja|Marijke|Michael',
+        '<PERSON>',
+        str(text)
+    )
+
+def replace_social_handles(text):
+    """Replace any remaining @mentions not caught by replace_org."""
+    if pd.isna(text):
+        return text
+    return re.sub(r'@\w+', '<ORG>', str(text))
+
+def replace_email(text):
+    if pd.isna(text):
+        return text
+    # Also catch "buurten@<ORG>.com" style partial replacements
+    text = re.sub(r'\w+@<ORG>\.\w+', '<EMAIL>', str(text))
+    return re.sub(
+        r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}',
+        '<EMAIL>',
+        text
+    )
+
+def replace_social_handles(text):
+    """Replace any remaining @mentions not caught by replace_org."""
+    if pd.isna(text):
+        return text
+    return re.sub(r'@\w+', '<ORG>', str(text))
 
 def replace_url(text):
     if pd.isna(text):
@@ -43,6 +96,11 @@ def replace_phone(text):
         str(text)
     )
 
+def replace_name(text):
+    if pd.isna(text):
+        return text
+    return re.sub(r'Annelotte|Marjan Maat|Wilma Wouters|Marco Karman', '<PERSON>', str(text))
+
 def is_only_url_or_org(text, min_words=5):
     """Returns True if text has no content beyond <URL>, <ORG>, <PERSON> tags."""
     if pd.isna(text):
@@ -54,17 +112,6 @@ def is_only_url_or_org(text, min_words=5):
     words = [w for w in cleaned.split() if w]
     return len(words) < min_words
 
-def replace_email(text):
-    if pd.isna(text):
-        return text
-    return re.sub(
-        r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}',
-        '<EMAIL>',
-        str(text)
-    )
-
-
-                 
 
 
 
@@ -75,7 +122,13 @@ data = data[data['true_comment'].apply(is_meaningful)]
 data = data[data['generated_comment'].apply(is_meaningful)]
 
 for col in ['post', 'true_comment', 'generated_comment']:
-    data[col] = data[col].apply(replace_org).apply(replace_url).apply(replace_phone).apply(replace_email)
+    data[col] = (data[col]
+                 .apply(replace_url)               # replace URLs first
+                 .apply(replace_email)             # replace emails before org (catches partial)
+                 .apply(replace_org)               # replace org names
+                 .apply(replace_name)              # replace person names
+                 .apply(replace_phone)             # replace phone numbers
+                 .apply(replace_social_handles))   # catch any remaining @mentions
 
 before = len(data)
 data = data[~data['post'].apply(is_only_url_or_org)]

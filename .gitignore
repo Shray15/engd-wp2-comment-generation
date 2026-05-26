@@ -6,3 +6,8 @@
 *.pt
 *.pdf
 *.json
+*.safetensors
+*.md
+*.bin
+*.pth
+
