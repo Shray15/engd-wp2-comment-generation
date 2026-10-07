@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WoonPraat — Echt of AI?</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --card: #ffffff;
+    --ink: #24211c;
+    --muted: #7a7468;
+    --accent: #b5651d;
+    --accent-soft: #f4a460;
+    --real: #4c7a4c;
+    --synth: #4a6fa5;
+    --border: #e4ddd0;
+    --ok: #3f8f4f;
+    --bad: #b3453a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app {
+    width: 100%;
+    max-width: 640px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin: 0 0 28px;
+    font-size: 0.95rem;
+  }
+  .hidden { display: none !important; }
+
+  /* Mode select */
+  .mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .mode-btn {
+    border: 2px solid var(--border);
+    background: var(--bg);
+    border-radius: var(--radius);
+    padding: 20px 16px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .15s, transform .1s;
+    font-family: inherit;
+  }
+  .mode-btn:hover { border-color: var(--accent-soft); transform: translateY(-2px); }
+  .mode-btn .emoji { font-size: 1.8rem; display: block; margin-bottom: 8px; }
+  .mode-btn .title { font-weight: 600; font-size: 1.05rem; margin-bottom: 4px; }
+  .mode-btn .desc { color: var(--muted); font-size: 0.85rem; line-height: 1.4; }
+
+  @media (max-width: 480px) {
+    .mode-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Post picker */
+  .pick-count {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .pick-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+  }
+  .pick-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
+  .pick-item:last-child { border-bottom: none; }
+  .pick-item:hover { background: #fbfaf7; }
+  .pick-item input { margin-top: 3px; flex-shrink: 0; }
+  .pick-item.disabled { opacity: 0.4; cursor: not-allowed; }
+  .pick-item .snippet { color: var(--ink); white-space: pre-wrap; }
+
+  /* Progress */
+  .progress-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+  .progress-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent-soft);
+    width: 0%;
+    transition: width .25s;
+  }
+  .progress-label { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+
+  /* Post / comment display */
+  .post-box, .comment-box {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .post-box { background: #fbfaf7; color: var(--muted); }
+  .box-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: block;
+  }
+  .post-toggle {
+    margin-bottom: 14px;
+  }
+  .post-toggle summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--muted);
+    list-style: none;
+  }
+  .post-toggle summary::-webkit-details-marker { display: none; }
+  .post-toggle summary::before { content: "▸ "; }
+  .post-toggle[open] summary::before { content: "▾ "; }
+  .post-toggle:not([open]) summary:hover { color: var(--accent); }
+  .post-toggle .post-box { margin-top: 8px; margin-bottom: 0; }
+  .comment-box {
+    background: #fffdf8;
+    border-color: var(--accent-soft);
+    font-size: 1rem;
+    color: var(--ink);
+  }
+
+  /* Rating sliders */
+  .rating-group { margin-bottom: 18px; }
+  .rating-group label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .rating-scale {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+  .scale-btn {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 8px 0;
+    text-align: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  .scale-btn.selected {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Spot buttons */
+  .spot-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .spot-btn {
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--bg);
+    font-family: inherit;
+  }
+  .spot-btn.real:hover { border-color: var(--real); }
+  .spot-btn.synth:hover { border-color: var(--synth); }
+
+  .primary-btn {
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+  .primary-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  .secondary-btn {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 0.95rem;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+
+  /* Reveal panel */
+  .reveal {
+    margin-top: 18px;
+    padding: 16px;
+    border-radius: 10px;
+    text-align: center;
+    font-weight: 600;
+  }
+  .reveal.real { background: #e9f3e9; color: var(--real); }
+  .reveal.synth { background: #e9eef8; color: var(--synth); }
+  .reveal .verdict { font-size: 1.1rem; margin-bottom: 4px; }
+  .reveal .sub { font-weight: 400; font-size: 0.85rem; opacity: 0.85; }
+  .reveal.correct .verdict::before { content: "✓ "; color: var(--ok); }
+  .reveal.incorrect .verdict::before { content: "✗ "; color: var(--bad); }
+
+  .streak {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+  }
+
+  /* End screen */
+  .end-stats {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    margin: 24px 0;
+  }
+  .stat { text-align: center; }
+  .stat .num { font-size: 2rem; font-weight: 700; color: var(--accent); }
+  .stat .lbl { font-size: 0.8rem; color: var(--muted); }
+
+  /* Footer */
+  .app-footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.75rem;
+    margin-top: 16px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="card">
+
+    <!-- SCREEN: mode select -->
+    <div id="screen-select">
+      <h1>WoonPraat — Echt of AI?</h1>
+      <p class="subtitle">Lees een reactie op een Facebookbericht. Kun jij zien of een mens of een AI hem schreef?</p>
+      <div class="mode-grid">
+        <button class="mode-btn" onclick="enterRateMode()">
+          <span class="emoji">⭐</span>
+          <span class="title">Beoordeel</span>
+          <span class="desc">Beoordeel elke reactie op vloeiendheid, relevantie en menselijkheid.</span>
+        </button>
+        <button class="mode-btn" onclick="startSession('spot')">
+          <span class="emoji">🕵️</span>
+          <span class="title">Ontmasker de Nep</span>
+          <span class="desc">Raad meteen: echt of AI-gegenereerd? Bouw een streak op met elke juiste gok over 10 rondes.</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- SCREEN: pick user id (facilitated session with pre-assigned sets) -->
+    <div id="screen-userid" class="hidden">
+      <h1>Wie ben jij?</h1>
+      <p class="subtitle">Kies je naam. Je krijgt jouw eigen, vooraf samengestelde set berichten om te beoordelen.</p>
+      <select id="userid-select" class="pick-list" style="width:100%; padding:12px; font-size:0.95rem;"></select>
+      <button class="primary-btn" onclick="startSessionWithUserId()">Start sessie</button>
+      <button class="secondary-btn" onclick="resetToStart()">Terug</button>
+    </div>
+
+    <!-- SCREEN: pick posts -->
+    <div id="screen-pick" class="hidden">
+      <h1>Kies je berichten</h1>
+      <p class="subtitle">Selecteer tot <span id="pick-max">5</span> berichten waarop je reacties wilt zien.
+        Je weet nog niet welke reactie echt of AI is — die volgorde wisselt elke sessie.</p>
+      <div id="pick-count" class="pick-count">0 / 5 geselecteerd</div>
+      <div id="pick-list" class="pick-list"></div>
+      <button class="primary-btn" id="pick-start-btn" disabled onclick="startSessionWithSelection()">Start sessie</button>
+      <button class="secondary-btn" onclick="resetToStart()">Terug</button>
+    </div>
+
+    <!-- SCREEN: play -->
+    <div id="screen-play" class="hidden">
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <span class="progress-label" id="progress-label">1 / 10</span>
+      </div>
+
+      <div id="streak-line" class="streak hidden"></div>
+
+      <span class="box-label">Deze reactie moet je beoordelen</span>
+      <div class="comment-box" id="comment-text"></div>
+
+      <details class="post-toggle">
+        <summary>Dit is het bericht dat deze reactie heeft opgeroepen — klik om te bekijken</summary>
+        <div class="post-box" id="post-text"></div>
+      </details>
+
+      <!-- Rate mode inputs -->
+      <div id="rate-inputs" class="hidden">
+        <div class="rating-group">
+          <label><span>Vloeiendheid</span><span id="fluency-val">—</span></label>
+          <div class="rating-scale" data-field="fluency"></div>
+        </div>
+        <div class="rating-group">
+          <label><span>Relevantie</span><span id="relevance-val">—</span></label>
+          <div class="rating-scale" data-field="relevance"></div>
+        </div>
+        <div class="rating-group">
+          <label><span>Menselijkheid</span><span id="humanness-val">—</span></label>
+          <div class="rating-scale" data-field="humanness"></div>
+        </div>
+        <button class="primary-btn" id="rate-submit" disabled onclick="submitRating()">Bevestig beoordeling</button>
+      </div>
+
+      <!-- Spot mode inputs -->
+      <div id="spot-inputs" class="hidden">
+        <div class="spot-grid">
+          <button class="spot-btn real" onclick="submitGuess('real')">🙋 Echt</button>
+          <button class="spot-btn synth" onclick="submitGuess('synthetic')">🤖 AI</button>
+        </div>
+      </div>
+
+      <!-- Reveal -->
+      <div id="reveal" class="reveal hidden"></div>
+      <button class="primary-btn hidden" id="next-btn" onclick="nextItem()">Volgende</button>
+    </div>
+
+    <!-- SCREEN: end -->
+    <div id="screen-end" class="hidden">
+      <h1 id="end-title">Sessie voltooid!</h1>
+      <p class="subtitle" id="end-subtitle"></p>
+      <div class="end-stats" id="end-stats"></div>
+      <button class="primary-btn" onclick="resetToStart()">Nog een keer spelen</button>
+    </div>
+
+  </div>
+
+  <div class="app-footer">
+    Powered by Gemma 3 (4B)<br>
+    Developed under the BEL project — TU Eindhoven
+  </div>
+</div>
+
+<script>
+const MAX_PICKS = 5;
+
+let state = {
+  sessionId: null,
+  mode: null,
+  index: 0,
+  total: 0,
+  currentItem: null,
+  ratings: { fluency: null, relevance: null, humanness: null },
+  correctCount: 0,
+  streak: 0,
+  bestStreak: 0,
+  answeredThisItem: false,
+  pickMode: null,
+  candidates: [],
+  selected: new Set(),
+};
+
+function show(id) {
+  ['screen-select', 'screen-userid', 'screen-pick', 'screen-play', 'screen-end'].forEach(s => {
+    document.getElementById(s).classList.toggle('hidden', s !== id);
+  });
+}
+
+async function enterRateMode() {
+  // If an admin has pre-assigned sets (build_assignments.py), go straight to
+  // the user-id picker; otherwise fall back to free-pick mode.
+  const res = await fetch('/assignments/users');
+  const users = await res.json();
+  if (users.length > 0) {
+    showUserIdScreen(users);
+  } else {
+    showPickScreen('rate');
+  }
+}
+
+function showUserIdScreen(users) {
+  const select = document.getElementById('userid-select');
+  select.innerHTML = '';
+  users.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u;
+    opt.textContent = u;
+    select.appendChild(opt);
+  });
+  show('screen-userid');
+}
+
+async function startSessionWithUserId() {
+  const userId = document.getElementById('userid-select').value;
+  await startSession('rate', null, userId);
+}
+
+async function showPickScreen(mode) {
+  state.pickMode = mode;
+  state.selected = new Set();
+  document.getElementById('pick-max').textContent = MAX_PICKS;
+
+  const res = await fetch('/items/candidates');
+  state.candidates = await res.json();
+  renderPickList();
+  show('screen-pick');
+}
+
+function renderPickList() {
+  const list = document.getElementById('pick-list');
+  list.innerHTML = '';
+  state.candidates.forEach(item => {
+    const row = document.createElement('label');
+    row.className = 'pick-item';
+    const atLimit = state.selected.size >= MAX_PICKS && !state.selected.has(item.item_id);
+    row.classList.toggle('disabled', atLimit);
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = state.selected.has(item.item_id);
+    checkbox.disabled = atLimit;
+    checkbox.onchange = () => togglePick(item.item_id);
+
+    const snippet = document.createElement('span');
+    snippet.className = 'snippet';
+    snippet.textContent = item.post;
+
+    row.appendChild(checkbox);
+    row.appendChild(snippet);
+    list.appendChild(row);
+  });
+  updatePickCount();
+}
+
+function togglePick(itemId) {
+  if (state.selected.has(itemId)) {
+    state.selected.delete(itemId);
+  } else if (state.selected.size < MAX_PICKS) {
+    state.selected.add(itemId);
+  }
+  renderPickList();
+}
+
+function updatePickCount() {
+  document.getElementById('pick-count').textContent = `${state.selected.size} / ${MAX_PICKS} geselecteerd`;
+  document.getElementById('pick-start-btn').disabled = state.selected.size === 0;
+}
+
+async function startSessionWithSelection() {
+  await startSession(state.pickMode, [...state.selected]);
+}
+
+async function startSession(mode, itemIds, userId) {
+  const res = await fetch('/session/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, item_ids: itemIds, user_id: userId || null })
+  });
+  const data = await res.json();
+  state.sessionId = data.session_id;
+  state.mode = data.mode;
+  state.total = data.total_items;
+  state.index = 0;
+  state.correctCount = 0;
+  state.streak = 0;
+  state.bestStreak = 0;
+
+  document.getElementById('rate-inputs').classList.toggle('hidden', mode !== 'rate');
+  document.getElementById('spot-inputs').classList.toggle('hidden', mode !== 'spot');
+  document.getElementById('streak-line').classList.toggle('hidden', mode !== 'spot');
+
+  show('screen-play');
+  loadItem();
+}
+
+async function loadItem() {
+  state.answeredThisItem = false;
+  state.ratings = { fluency: null, relevance: null, humanness: null };
+  document.getElementById('reveal').classList.add('hidden');
+  document.getElementById('next-btn').classList.add('hidden');
+  document.querySelector('.post-toggle').open = false;
+
+  const res = await fetch(`/session/${state.sessionId}/item/${state.index}`);
+  if (res.status !== 200) { return; }
+  const item = await res.json();
+  state.currentItem = item;
+
+  document.getElementById('post-text').textContent = item.post;
+  document.getElementById('comment-text').textContent = item.comment;
+
+  const pct = ((state.index) / state.total) * 100;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-label').textContent = `${state.index + 1} / ${state.total}`;
+
+  if (state.mode === 'rate') {
+    buildScales();
+    document.getElementById('rate-submit').disabled = true;
+  } else {
+    document.querySelectorAll('.spot-btn').forEach(b => b.disabled = false);
+    updateStreakLine();
+  }
+}
+
+function buildScales() {
+  ['fluency', 'relevance', 'humanness'].forEach(field => {
+    const wrap = document.querySelector(`.rating-scale[data-field="${field}"]`);
+    wrap.innerHTML = '';
+    for (let v = 1; v <= 5; v++) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'scale-btn';
+      btn.textContent = v;
+      btn.onclick = () => selectRating(field, v);
+      wrap.appendChild(btn);
+    }
+    document.getElementById(`${field}-val`).textContent = '—';
+  });
+}
+
+function selectRating(field, value) {
+  state.ratings[field] = value;
+  document.getElementById(`${field}-val`).textContent = value;
+  const wrap = document.querySelector(`.rating-scale[data-field="${field}"]`);
+  [...wrap.children].forEach((btn, i) => {
+    btn.classList.toggle('selected', i + 1 === value);
+  });
+  const allSet = Object.values(state.ratings).every(v => v !== null);
+  document.getElementById('rate-submit').disabled = !allSet;
+}
+
+async function submitRating() {
+  if (state.answeredThisItem) return;
+  state.answeredThisItem = true;
+  document.getElementById('rate-submit').disabled = true;
+
+  const res = await fetch('/session/rate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      index: state.index,
+      ...state.ratings
+    })
+  });
+  await res.json();
+  document.getElementById('next-btn').classList.remove('hidden');
+}
+
+async function submitGuess(guess) {
+  if (state.answeredThisItem) return;
+  state.answeredThisItem = true;
+  document.querySelectorAll('.spot-btn').forEach(b => b.disabled = true);
+
+  const res = await fetch('/session/spot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      index: state.index,
+      guess
+    })
+  });
+  const data = await res.json();
+
+  if (data.correct) {
+    state.correctCount++;
+    state.streak++;
+    state.bestStreak = Math.max(state.bestStreak, state.streak);
+  } else {
+    state.streak = 0;
+  }
+  updateStreakLine();
+  showReveal(data.condition, data.correct);
+}
+
+function updateStreakLine() {
+  document.getElementById('streak-line').textContent =
+    `Streak: ${state.streak}  ·  Score: ${state.correctCount} / ${state.index + (state.answeredThisItem ? 1 : 0)}`;
+}
+
+function showReveal(condition, correct) {
+  const el = document.getElementById('reveal');
+  el.classList.remove('hidden', 'real', 'synth', 'correct', 'incorrect');
+  el.classList.add(condition === 'real' ? 'real' : 'synth');
+
+  let verdict = condition === 'real'
+    ? 'Dit was een ECHTE reactie van een bewoner'
+    : 'Dit was een AI-gegenereerde reactie';
+
+  if (correct !== null) {
+    el.classList.add(correct ? 'correct' : 'incorrect');
+    verdict = correct ? 'Juist! ' + verdict : 'Helaas. ' + verdict;
+  }
+
+  el.innerHTML = `<div class="verdict">${verdict}</div>`;
+  document.getElementById('next-btn').classList.remove('hidden');
+}
+
+function nextItem() {
+  state.index++;
+  if (state.index >= state.total) {
+    showEnd();
+  } else {
+    loadItem();
+  }
+}
+
+function showEnd() {
+  document.getElementById('progress-fill').style.width = '100%';
+  const statsEl = document.getElementById('end-stats');
+  statsEl.innerHTML = '';
+
+  if (state.mode === 'spot') {
+    document.getElementById('end-subtitle').textContent =
+      'Bedankt voor het spelen van Ontmasker de Nep.';
+    statsEl.innerHTML = `
+      <div class="stat"><div class="num">${state.correctCount}/${state.total}</div><div class="lbl">Juist geraden</div></div>
+      <div class="stat"><div class="num">${state.bestStreak}</div><div class="lbl">Beste streak</div></div>
+    `;
+  } else {
+    document.getElementById('end-subtitle').textContent =
+      'Bedankt voor het beoordelen van deze reacties.';
+    statsEl.innerHTML = `
+      <div class="stat"><div class="num">${state.total}</div><div class="lbl">Reacties beoordeeld</div></div>
+    `;
+  }
+  show('screen-end');
+}
+
+function resetToStart() {
+  show('screen-select');
+}
+</script>
+</body>
+</html>

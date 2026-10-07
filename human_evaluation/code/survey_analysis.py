@@ -1,53 +1,72 @@
+import json
 import pandas as pd
 import numpy as np
-import re
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from sklearn.metrics import cohen_kappa_score
 from scipy.stats import mannwhitneyu
 
-base = r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\human_evaluation\subsets"
+results_base = r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\human_evaluation\results"
+subsets_base = r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\human_evaluation\subsets"
 metrics = ['fluency', 'relevance', 'humanness']
 
-# Sliding window overlap pairs
-overlap_pairs = [(1,2), (2,3), (3,4), (4,5), (5,6), (6,7)]
+# Circular sliding window overlap pairs (Ann 7 → Ann 1 closes the loop)
+overlap_pairs = [(1,2), (2,3), (3,4), (4,5), (5,6), (6,7), (7,1)]
 
 # ═══════════════════════════════════════════════════════════════════════
 # STEP 1: PARSE GOOGLE FORM RESPONSES
 # ═══════════════════════════════════════════════════════════════════════
 
-def parse_annotator_response(csv_path, annotator_id):
+def parse_annotator_response(csv_path, annotator_id, subset_path=None):
     """
     Parse Google Form CSV export.
-    Column names: "Item 3 of 20 [ID:47] Fluency"
-    Returns long format: one row per item.
+    Columns are repeated question text with pandas suffixes (.1, .2, ... .19).
+    Groups of 3 columns per item: fluency, relevance, humanness.
+    item_order is looked up from the annotator subset file to recover pair_id.
     """
     df  = pd.read_csv(csv_path)
-    row = df.iloc[0]  # one submission per annotator
-    records = {}
+    row = df.iloc[0].values  # one submission per annotator
 
-    for col in df.columns:
-        match = re.search(r'\[ID:(\d+)\]', col)
-        if not match:
-            continue
-        pair_id = int(match.group(1))
+    if subset_path is None:
+        subset_path = f"{subsets_base}\\annotator_{annotator_id:02d}.csv"
 
-        for metric in metrics:
-            if metric.capitalize() in col:
-                if pair_id not in records:
-                    records[pair_id] = {
-                        'annotator_id': annotator_id,
-                        'pair_id':      pair_id
-                    }
-                records[pair_id][metric] = int(row[col])
+    if subset_path.endswith('.json'):
+        with open(subset_path, encoding='utf-8') as f:
+            subset = pd.DataFrame(json.load(f))
+    else:
+        subset = pd.read_csv(subset_path)
 
-    return pd.DataFrame(list(records.values()))
+    order_to_pair = dict(zip(subset['item_order'], subset['pair_id']))
+    n_items = len(subset)
+
+    records = []
+    for item_order in range(1, n_items + 1):
+        pair_id  = order_to_pair[item_order]
+        base_idx = 1 + (item_order - 1) * 3   # skip Timestamp at index 0
+        records.append({
+            'annotator_id': annotator_id,
+            'pair_id':      pair_id,
+            'fluency':      int(row[base_idx]),
+            'relevance':    int(row[base_idx + 1]),
+            'humanness':    int(row[base_idx + 2]),
+        })
+
+    return pd.DataFrame(records)
 
 # Load all 7 annotators
 all_responses = []
 for ann_id in range(1, 8):
-    path   = f"{base}\\annotator_{ann_id:02d}_responses.csv"
-    ann_df = parse_annotator_response(path, ann_id)
+    if ann_id == 1:
+        # Ann 1's subset was redesigned mid-study to close the circular loop.
+        # The current unified 20-item submission maps via annotator_01_new.json.
+        ann_df = parse_annotator_response(
+            csv_path=f"{results_base}\\annotator_01_responses.csv",
+            annotator_id=1,
+            subset_path=f"{subsets_base}\\annotator_01_new.json",
+        )
+    else:
+        path   = f"{results_base}\\annotator_{ann_id:02d}_responses.csv"
+        ann_df = parse_annotator_response(path, ann_id)
     all_responses.append(ann_df)
     print(f"Annotator {ann_id}: {len(ann_df)} items parsed ✓")
 
@@ -58,13 +77,15 @@ print(f"\nTotal responses: {len(responses)} (expect 140)")
 # STEP 2: MERGE WITH MASTER TO GET CONDITION LABELS
 # ═══════════════════════════════════════════════════════════════════════
 
-master = pd.read_csv(f"{base}\\master_with_conditions.csv")
+master = pd.read_csv(f"{subsets_base}\\master_with_conditions.csv")
 
-results = responses.merge(
-    master[['annotator_id', 'pair_id', 'condition', 'item_id']],
-    on=['annotator_id', 'pair_id'],
-    how='left'
-)
+# Join on pair_id only — condition/item_id are properties of the pair,
+# not the annotator. Ann 1's new items (pair_ids from Ann 7's block) exist
+# in master under annotator_id=7, so joining on annotator_id+pair_id would miss them.
+pair_info = (master[['pair_id', 'condition', 'item_id', 'post', 'comment']]
+             .drop_duplicates('pair_id'))
+
+results = responses.merge(pair_info, on='pair_id', how='left')
 
 print(f"Null conditions: {results['condition'].isna().sum()} (expect 0)")
 print(f"Condition counts:\n{results['condition'].value_counts()}")
@@ -266,16 +287,16 @@ plt.suptitle(
 )
 
 plt.tight_layout()
-plt.savefig(f"{base}\\human_eval_boxplots.png", dpi=300, bbox_inches='tight')
+plt.savefig(f"{results_base}\\human_eval_boxplots.png", dpi=300, bbox_inches='tight')
 plt.show()
 
 # ═══════════════════════════════════════════════════════════════════════
 # STEP 7: SAVE ALL RESULTS
 # ═══════════════════════════════════════════════════════════════════════
 
-item_scores.to_csv(f"{base}\\item_scores_averaged.csv", index=False)
-kappa_df.to_csv(f"{base}\\kappa_results.csv", index=False)
-pd.DataFrame(stat_records).to_csv(f"{base}\\mannwhitney_results.csv", index=False)
+item_scores.to_csv(f"{results_base}\\item_scores_averaged.csv", index=False)
+kappa_df.to_csv(f"{results_base}\\kappa_results.csv", index=False)
+pd.DataFrame(stat_records).to_csv(f"{results_base}\\mannwhitney_results.csv", index=False)
 
 print(f"\n✓ Saved:")
 print(f"  item_scores_averaged.csv  — averaged scores per item")

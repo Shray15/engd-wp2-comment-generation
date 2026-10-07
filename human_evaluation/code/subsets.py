@@ -204,6 +204,30 @@ for ann_id in range(1, n_annotators + 1):
 
     annotator_assignments[ann_id] = block
 
+# ── CIRCULAR PATCH: ANN 1 ─────────────────────────────────────────────
+# Survey redesign: Ann 1's 10 unique items (item_ids 1–10) are replaced by
+# Ann 7's unshared last 10 (item_ids 71–80) to close the circular overlap.
+# The shuffle order of those items is preserved from Ann 7's assignment.
+
+ann7_unique = (
+    annotator_assignments[7][annotator_assignments[7]['item_id'].between(71, 80)]
+    .sort_values('item_order')
+    .reset_index(drop=True)
+    .copy()
+)
+ann7_unique['annotator_id'] = 1
+ann7_unique['item_order'] = range(1, 11)
+
+ann1_shared = (
+    annotator_assignments[1][annotator_assignments[1]['item_id'].between(11, 20)]
+    .sort_values('item_order')
+    .reset_index(drop=True)
+    .copy()
+)
+ann1_shared['item_order'] = range(11, 21)
+
+annotator_assignments[1] = pd.concat([ann7_unique, ann1_shared], ignore_index=True)
+
 # ── SANITY CHECKS ─────────────────────────────────────────────────────
 master = pd.concat(annotator_assignments.values(), ignore_index=True)
 
@@ -218,7 +242,7 @@ print(master.groupby('annotator_id')['pair_id'].nunique().to_string())
 print(f"\n3. Real/Synthetic per annotator (expect 10 each):")
 print(master.groupby(['annotator_id', 'condition']).size().unstack().to_string())
 
-print(f"\n4. Annotators per item (overlap items expect 2, edge items expect 1):")
+print(f"\n4. Annotators per item (circular: items 11–80 expect 2, items 1–10 expect 0):")
 print(master.groupby('item_id')['annotator_id'].count().value_counts().to_string())
 
 print(f"\n5. Total annotations: {len(master)} (expect 140)")
@@ -230,6 +254,11 @@ for ann_id in range(1, n_annotators):
     items_b = set(annotator_assignments[ann_id + 1]['item_id'])
     overlap = items_a & items_b
     print(f"  Ann {ann_id} & Ann {ann_id+1}: {len(overlap)} overlapping items ✓")
+
+# Circular overlap: Ann 7 wraps back to Ann 1
+items_7 = set(annotator_assignments[7]['item_id'])
+items_1 = set(annotator_assignments[1]['item_id'])
+print(f"  Ann 7 & Ann 1 (circular): {len(items_7 & items_1)} overlapping items ✓")
 
 # ── SAVE OUTPUTS ──────────────────────────────────────────────────────
 for ann_id, ann_df in annotator_assignments.items():

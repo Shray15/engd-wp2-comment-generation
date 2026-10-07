@@ -10,8 +10,8 @@ from tqdm import tqdm
 nltk.download('punkt')
 
 # Load the data
-data = pd.read_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\Fine Tune gemma\multiloss\multiloss_generated_commentsv3.csv")
-real_data = pd.read_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\data\final_test_set.csv")
+data = pd.read_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\data\final_test_set.csv")
+#real_data = pd.read_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\data\final_test_set.csv")
 data.replace('\n', pd.NA, inplace=True)
 
 # Drop rows containing NaN values
@@ -19,7 +19,7 @@ data.replace('\n', pd.NA, inplace=True)
 
 # Reset index if needed
 data.reset_index(drop=True, inplace=True)
-print(len(data["generated_comment"]))
+print(len(data["text"]))
 
 class zero_shot_voting():
     def __init__(self):
@@ -128,16 +128,16 @@ df = pd.DataFrame(columns=["Comment", "Sentiment of the four models", "Score", "
 obj = zero_shot_voting()
 
 # Process each comment
-for i in tqdm(range(len(data["generated_comment"]))):
-    if pd.isna(data["generated_comment"][i]):
+for i in tqdm(range(len(data["text"]))):
+    if pd.isna(data["text"][i]):
         continue
-    overall_sentiment, overall_sentiment_score, overall_sentiment_voting, sentiment_over_comment = obj.sentiment_across_sentences(data["generated_comment"][i])
+    overall_sentiment, overall_sentiment_score, overall_sentiment_voting, sentiment_over_comment = obj.sentiment_across_sentences(data["text"][i])
     # Sentiment over sending entire comment to models
-    pred, pred_score = obj.prediction(data["generated_comment"][i])
+    pred, pred_score = obj.prediction(data["text"][i])
 
     check = {
-        'Post': data["post"][i],
-        'Comment': data["generated_comment"][i],
+        'Post': data["text_ha"][i],
+        'Comment': data["text"][i],
         # 'Author Name': data["author_name"][i],
         #"Posts_time": data["time.x"][i],
         #"Comments_time": data["time"][i],
@@ -149,11 +149,11 @@ for i in tqdm(range(len(data["generated_comment"]))):
         "Sentiment from models score": pred_score,
         "Sentiment over comment from models": obj.overall_sentiment_sentence(pred),
         "Score for entire comment": pred_score,
-        "Real Sentiment": real_data["Sentiment"][i]
+        #"Real Sentiment": real_data["Sentiment"][i]
     }
     check = pd.DataFrame([check])
     df = pd.concat([df, check], ignore_index=True)
 
 # Save results to CSV
-df.to_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\Fine Tune gemma\multiloss\multiloss_sentiment_resultsv3.csv", index=False)
+df.to_csv(r"C:\Users\20245179\OneDrive - TU Eindhoven\WP2_Simulation_Tool\data\final_test_set_classifier_sentiment.csv", index=False)
 
